@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Blink Detection</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f5f5f5;
+        }
+
+        video {
+            border: 2px solid #000;
+            border-radius: 10px;
+            width: 640px;
+            height: 480px;
+        }
+
+        .blink-counter {
+            margin-top: 20px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" autoplay playsinline></video>
+    <div class="blink-counter">Кількість кліпань: <span id="blinkCount">0</span></div>
+    <div class="error" id="errorMessage"></div>
+
+    <!-- MediaPipe FaceMesh -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const blinkCountElement = document.getElementById('blinkCount');
+        const errorMessageElement = document.getElementById('errorMessage');
+
+        let blinkCounter = 0;
+        let previousState = 'open';
+        const BLINK_THRESHOLD = 0.2; // Порогове значення для визначення кліпання
+
+        // Обробка помилок
+        function handleError(error) {
+            console.error('Помилка: ', error);
+            errorMessageElement.textContent = `Помилка: ${error.message || error}`;
+        }
+
+        // Запуск відеопотоку через MediaPipe Camera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+
+        // Функція для запуску FaceMesh
+        const faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        // Функція для обробки результатів (кліпання)
+        function onResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+
+                const leftEye = landmarks.slice(159, 164); // Ключові точки для лівого ока
+                const rightEye = landmarks.slice(386, 391); // Ключові точки для правого ока
+
+                const leftEAR = calculateEAR(leftEye);
+                const rightEAR = calculateEAR(rightEye);
+                const avgEAR = (leftEAR + rightEAR) / 2;
+
+                if (avgEAR < BLINK_THRESHOLD && previousState === 'open') {
+                    blinkCounter++;
+                    blinkCountElement.textContent = blinkCounter;
+                    previousState = 'closed';
+                } else if (avgEAR >= BLINK_THRESHOLD && previousState === 'closed') {
+                    previousState = 'open';
+                }
+            }
+        }
+
+        // Функція для обчислення EAR (співвідношення аспекту очей)
+        function calculateEAR(eye) {
+            const A = Math.hypot(eye[1].x - eye[4].x, eye[1].y - eye[4].y);
+            const B = Math.hypot(eye[2].x - eye[3].x, eye[2].y - eye[3].y);
+            const C = Math.hypot(eye[0].x - eye[5].x, eye[0].y - eye[5].y);
+
+            const ear = (A + B) / (2.0 * C);
+            return ear;
+        }
+
+        // Запуск камери і FaceMesh
+        camera.start();
+    </script>
+</body>
+</html>
